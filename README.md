@@ -258,6 +258,10 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Version History
 
+### 1.2.1 (2026-07-02)
+- Fix: the "✓ rename command sent successfully" line is now only logged when the rename command actually completes; previously it was still printed after a failed or timed-out rename.
+- Refactor: the Radarr and Sonarr branches share one refresh → probe → rename flow via internal helpers instead of two near-identical copies. API calls and log output are unchanged.
+
 ### 1.2.0 (2026-05-05)
 - Fix the silent IMDB/TMDB/TVDB fallback bug: Radarr's `GET /api/v3/movie?imdbId=` is ignored server-side and returns the full library, so the previous code grabbed `[0]` (the alphabetically-first movie) instead of the requested title. Lookup now filters the already-fetched library client-side; same fix applied to the Sonarr fallback.
 - Add idempotent skip: probe `GET /api/v3/rename?movieId=...` (or `?seriesId=...`) after the refresh completes, and skip the `RenameMovie`/`RenameSeries` API call entirely when nothing is pending.

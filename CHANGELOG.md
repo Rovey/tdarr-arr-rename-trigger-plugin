@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.1] - 2026-07-02
+
+### Fixed
+- The "✓ ... rename command sent successfully!" line is now only logged when the rename command actually reports `completed`. Previously it was still printed after a failed or timed-out rename, contradicting the `finished with status: failed` line right above it.
+
+### Changed
+- Internal refactor: the near-identical Radarr and Sonarr refresh → wait → probe → rename blocks are collapsed into shared helpers (`refreshProbeAndRename`, `postCommandAndWait`, `findByExternalIds`), removing ~120 duplicated lines. API calls and log output are unchanged.
+- The command-wait policy (60 s timeout, 1 s poll interval) is now defined once as named constants, and the poll-loop sleep reuses a single `Atomics.wait` buffer instead of allocating a new `SharedArrayBuffer` every second.
+
 ## [1.2.0] - 2026-05-05
 
 ### Fixed
@@ -54,5 +63,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Uses movieIds/seriesIds arrays for command parameters (verified against Radarr source code)
 - ID extraction from file paths: IMDB (tt\d+), TMDB (tmdbid-\d+), TVDB (tvdbid-\d+)
 
+[1.2.1]: https://github.com/Rovey/Tdarr-arr-rename-trigger-plugin/releases/tag/v1.2.1
 [1.2.0]: https://github.com/Rovey/Tdarr-arr-rename-trigger-plugin/releases/tag/v1.2.0
 [1.0.0]: https://github.com/Rovey/Tdarr-arr-rename-trigger-plugin/releases/tag/v1.0.0
