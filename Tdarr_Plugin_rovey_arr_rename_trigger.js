@@ -142,13 +142,18 @@ const plugin = (file, librarySettings, inputs, otherArguments) => {
 
     const refreshFirst = inputs.refresh_first === true;
 
+    const COMMAND_WAIT_TIMEOUT_MS = 60000;
+    const COMMAND_POLL_INTERVAL_MS = 1000;
+
+    const sleepBuf = new Int32Array(new SharedArrayBuffer(4));
+    const sleepSync = (ms) => {
+        Atomics.wait(sleepBuf, 0, 0, ms);
+    };
+
     // Poll a queued *arr command until it finishes (or timeout). Without this,
     // RenameMovie/RenameSeries races the Refresh's mediainfo rescan and skips the rename.
-    const sleepSync = (ms) => {
-        Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-    };
     const waitForCommand = (host, apiKey, commandId, label) => {
-        const deadline = Date.now() + 60000;
+        const deadline = Date.now() + COMMAND_WAIT_TIMEOUT_MS;
         while (Date.now() < deadline) {
             try {
                 const res = request('GET', `${host}/api/v3/command/${commandId}`, {
@@ -165,10 +170,82 @@ const plugin = (file, librarySettings, inputs, otherArguments) => {
                 response.infoLog += `[RenameTrigger] ${label} poll error: ${e.message}\n`;
                 return false;
             }
-            sleepSync(1000);
+            sleepSync(COMMAND_POLL_INTERVAL_MS);
         }
-        response.infoLog += `[RenameTrigger] ${label} timed out after 60s\n`;
+        response.infoLog += `[RenameTrigger] ${label} timed out after ${COMMAND_WAIT_TIMEOUT_MS / 1000}s\n`;
         return false;
+    };
+
+    // POST a *arr command and poll it to completion. announceWait logs the
+    // "Waiting for..." line (used for refreshes, where the wait is the point).
+    // Returns true only when the command reports status 'completed'.
+    const postCommandAndWait = (host, apiKey, body, label, announceWait) => {
+        response.infoLog += `[RenameTrigger] Triggering ${label}...\n`;
+        const res = request('POST', `${host}/api/v3/command`, {
+            headers: {
+                'X-Api-Key': apiKey,
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(body),
+            timeout: 10000,
+        });
+        response.infoLog += `[RenameTrigger] ${label} response: ${res.statusCode}\n`;
+        try {
+            const cmd = JSON.parse(res.getBody('utf8'));
+            if (cmd && cmd.id) {
+                if (announceWait) {
+                    response.infoLog += `[RenameTrigger] Waiting for ${label} (id=${cmd.id}) to finish before renaming...\n`;
+                }
+                return waitForCommand(host, apiKey, cmd.id, label);
+            }
+        } catch (e) {
+            response.infoLog += `[RenameTrigger] Could not parse ${label} response: ${e.message}\n`;
+        }
+        return false;
+    };
+
+    // The *arrs' ID query params are unreliable (Radarr ignores ?imdbId= and
+    // silently returns all movies, so [0] grabs the wrong title; Sonarr only
+    // honors tvdbId) — match the already-fetched library client-side instead.
+    // candidates: ordered [field, value, numeric?] triples.
+    const findByExternalIds = (list, candidates) => {
+        for (const [field, value, numeric] of candidates) {
+            if (value) {
+                const wanted = numeric ? parseInt(value, 10) : value;
+                const match = list.find((item) => item[field] === wanted);
+                if (match) return match;
+            }
+        }
+        return null;
+    };
+
+    // Shared Radarr/Sonarr flow: refresh (and wait for it), probe pending
+    // renames, then rename only if there is actually work to do.
+    const refreshProbeAndRename = ({ serviceName, host, apiKey, id, refreshName, renameName, idsKey, probeParam }) => {
+        if (refreshFirst) {
+            postCommandAndWait(host, apiKey, { name: refreshName, [idsKey]: [id] }, refreshName, true);
+        }
+
+        // The probe must run AFTER Refresh so mediainfo is current.
+        let renameNeeded = true;
+        try {
+            const probeRes = request('GET', `${host}/api/v3/rename?${probeParam}=${id}`, {
+                headers: { 'X-Api-Key': apiKey },
+                timeout: 10000,
+            });
+            const pending = JSON.parse(probeRes.getBody('utf8'));
+            const pendingCount = Array.isArray(pending) ? pending.length : 0;
+            renameNeeded = pendingCount > 0;
+            response.infoLog += `[RenameTrigger] Pending renames after refresh: ${pendingCount}\n`;
+        } catch (e) {
+            response.infoLog += `[RenameTrigger] Rename probe failed (${e.message}), will trigger anyway.\n`;
+        }
+
+        if (!renameNeeded) {
+            response.infoLog += `[RenameTrigger] ✓ No rename needed — skipping ${renameName}.\n`;
+        } else if (postCommandAndWait(host, apiKey, { name: renameName, [idsKey]: [id] }, renameName, false)) {
+            response.infoLog += `[RenameTrigger] ✓ ${serviceName} rename command sent successfully!\n`;
+        }
     };
 
     const path = file.file || file._id || '';
@@ -234,97 +311,33 @@ const plugin = (file, librarySettings, inputs, otherArguments) => {
                     }
                 }
 
-                // Fallback: filter the already-fetched movie list client-side. Radarr's
-                // GET /api/v3/movie ignores ?imdbId= and silently returns all movies, so
-                // taking [0] grabs the wrong title alphabetically.
-                if (!movie && (imdb || tmdb)) {
-                    response.infoLog += `[RenameTrigger] File not found by path, trying ID match against movie list...\n`;
-                    if (imdb) {
-                        movie = allMovies.find((m) => m.imdbId === imdb) || null;
+                // Fallback: match by external IDs when the path lookup missed
+                if (!movie) {
+                    if (imdb || tmdb) {
+                        response.infoLog += `[RenameTrigger] File not found by path, trying ID match against movie list...\n`;
+                        movie = findByExternalIds(allMovies, [['imdbId', imdb], ['tmdbId', tmdb, true]]);
+                        if (movie) {
+                            response.infoLog += `[RenameTrigger] Found movie by ID: ${movie.title} (id=${movie.id})\n`;
+                        }
+                    } else {
+                        response.infoLog += '[RenameTrigger] No imdb/tmdb ID found and file not in Radarr.\n';
                     }
-                    if (!movie && tmdb) {
-                        const tmdbNum = parseInt(tmdb, 10);
-                        movie = allMovies.find((m) => m.tmdbId === tmdbNum) || null;
-                    }
-                    if (movie) {
-                        response.infoLog += `[RenameTrigger] Found movie by ID: ${movie.title} (id=${movie.id})\n`;
-                    }
-                } else if (!movie) {
-                    response.infoLog += '[RenameTrigger] No imdb/tmdb ID found and file not in Radarr.\n';
                 }
 
                 if (!movie || !movie.id) {
                     response.infoLog += '[RenameTrigger] Radarr: movie not found in Radarr.\n';
                 } else {
-                    const movieId = movie.id;
-                    response.infoLog += `[RenameTrigger] Using movie: ${movie.title} (id=${movieId})\n`;
-
-                    if (refreshFirst) {
-                        response.infoLog += '[RenameTrigger] Triggering RefreshMovie...\n';
-                        const refreshRes = request('POST', `${radarrHost}/api/v3/command`, {
-                            headers: {
-                                'X-Api-Key': radarrApiKey,
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                name: 'RefreshMovie',
-                                movieIds: [movieId],
-                            }),
-                            timeout: 10000,
-                        });
-                        response.infoLog += `[RenameTrigger] RefreshMovie response: ${refreshRes.statusCode}\n`;
-                        try {
-                            const refreshCmd = JSON.parse(refreshRes.getBody('utf8'));
-                            if (refreshCmd && refreshCmd.id) {
-                                response.infoLog += `[RenameTrigger] Waiting for RefreshMovie (id=${refreshCmd.id}) to finish before renaming...\n`;
-                                waitForCommand(radarrHost, radarrApiKey, refreshCmd.id, 'RefreshMovie');
-                            }
-                        } catch (e) {
-                            response.infoLog += `[RenameTrigger] Could not parse RefreshMovie response: ${e.message}\n`;
-                        }
-                    }
-
-                    // Probe pending renames first — only fire RenameMovie if Radarr
-                    // actually has work to do. Must run AFTER Refresh so mediainfo is current.
-                    let pendingCount = -1;
-                    try {
-                        const probeRes = request('GET', `${radarrHost}/api/v3/rename?movieId=${movieId}`, {
-                            headers: { 'X-Api-Key': radarrApiKey },
-                            timeout: 10000,
-                        });
-                        const pending = JSON.parse(probeRes.getBody('utf8'));
-                        pendingCount = Array.isArray(pending) ? pending.length : 0;
-                        response.infoLog += `[RenameTrigger] Pending renames after refresh: ${pendingCount}\n`;
-                    } catch (e) {
-                        response.infoLog += `[RenameTrigger] Rename probe failed (${e.message}), will trigger anyway.\n`;
-                    }
-
-                    if (pendingCount === 0) {
-                        response.infoLog += '[RenameTrigger] ✓ No rename needed — skipping RenameMovie.\n';
-                    } else {
-                        response.infoLog += '[RenameTrigger] Triggering RenameMovie...\n';
-                        const renameRes = request('POST', `${radarrHost}/api/v3/command`, {
-                            headers: {
-                                'X-Api-Key': radarrApiKey,
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                name: 'RenameMovie',
-                                movieIds: [movieId],
-                            }),
-                            timeout: 10000,
-                        });
-                        response.infoLog += `[RenameTrigger] RenameMovie response: ${renameRes.statusCode}\n`;
-                        try {
-                            const renameCmd = JSON.parse(renameRes.getBody('utf8'));
-                            if (renameCmd && renameCmd.id) {
-                                waitForCommand(radarrHost, radarrApiKey, renameCmd.id, 'RenameMovie');
-                            }
-                        } catch (e) {
-                            response.infoLog += `[RenameTrigger] Could not parse RenameMovie response: ${e.message}\n`;
-                        }
-                        response.infoLog += '[RenameTrigger] ✓ Radarr rename command sent successfully!\n';
-                    }
+                    response.infoLog += `[RenameTrigger] Using movie: ${movie.title} (id=${movie.id})\n`;
+                    refreshProbeAndRename({
+                        serviceName: 'Radarr',
+                        host: radarrHost,
+                        apiKey: radarrApiKey,
+                        id: movie.id,
+                        refreshName: 'RefreshMovie',
+                        renameName: 'RenameMovie',
+                        idsKey: 'movieIds',
+                        probeParam: 'movieId',
+                    });
                 }
             }
         }
@@ -357,7 +370,7 @@ const plugin = (file, librarySettings, inputs, otherArguments) => {
                                 timeout: 10000,
                             });
                             const episodeFiles = JSON.parse(episodeFilesRes.getBody('utf8'));
-                            
+
                             // Check if any episode file path matches
                             for (const ef of episodeFiles) {
                                 if (ef.path === path) {
@@ -373,101 +386,33 @@ const plugin = (file, librarySettings, inputs, otherArguments) => {
                     }
                 }
 
-                // Fallback: filter the already-fetched series list client-side. Sonarr's
-                // GET /api/v3/series only honors tvdbId reliably; imdbId/tmdbId can return
-                // an unfiltered list, making [0] the wrong show.
-                if (!show && (tvdb || imdb || tmdb)) {
-                    response.infoLog += `[RenameTrigger] File not found by path, trying ID match against series list...\n`;
-                    if (tvdb) {
-                        const tvdbNum = parseInt(tvdb, 10);
-                        show = allSeries.find((s) => s.tvdbId === tvdbNum) || null;
+                // Fallback: match by external IDs when the path lookup missed
+                if (!show) {
+                    if (tvdb || imdb || tmdb) {
+                        response.infoLog += `[RenameTrigger] File not found by path, trying ID match against series list...\n`;
+                        show = findByExternalIds(allSeries, [['tvdbId', tvdb, true], ['imdbId', imdb], ['tmdbId', tmdb, true]]);
+                        if (show) {
+                            response.infoLog += `[RenameTrigger] Found series by ID: ${show.title} (id=${show.id})\n`;
+                        }
+                    } else {
+                        response.infoLog += '[RenameTrigger] No tvdb/tmdb/imdb ID found and file not in Sonarr.\n';
                     }
-                    if (!show && imdb) {
-                        show = allSeries.find((s) => s.imdbId === imdb) || null;
-                    }
-                    if (!show && tmdb) {
-                        const tmdbNum = parseInt(tmdb, 10);
-                        show = allSeries.find((s) => s.tmdbId === tmdbNum) || null;
-                    }
-                    if (show) {
-                        response.infoLog += `[RenameTrigger] Found series by ID: ${show.title} (id=${show.id})\n`;
-                    }
-                } else if (!show) {
-                    response.infoLog += '[RenameTrigger] No tvdb/tmdb/imdb ID found and file not in Sonarr.\n';
                 }
 
                 if (!show || !show.id) {
                     response.infoLog += '[RenameTrigger] Sonarr: series not found in Sonarr.\n';
                 } else {
-                    const seriesId = show.id;
-                    response.infoLog += `[RenameTrigger] Using series: ${show.title} (id=${seriesId})\n`;
-
-                    if (refreshFirst) {
-                        response.infoLog += '[RenameTrigger] Triggering RefreshSeries...\n';
-                        const refreshRes = request('POST', `${sonarrHost}/api/v3/command`, {
-                            headers: {
-                                'X-Api-Key': sonarrApiKey,
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                name: 'RefreshSeries',
-                                seriesIds: [seriesId],
-                            }),
-                            timeout: 10000,
-                        });
-                        response.infoLog += `[RenameTrigger] RefreshSeries response: ${refreshRes.statusCode}\n`;
-                        try {
-                            const refreshCmd = JSON.parse(refreshRes.getBody('utf8'));
-                            if (refreshCmd && refreshCmd.id) {
-                                response.infoLog += `[RenameTrigger] Waiting for RefreshSeries (id=${refreshCmd.id}) to finish before renaming...\n`;
-                                waitForCommand(sonarrHost, sonarrApiKey, refreshCmd.id, 'RefreshSeries');
-                            }
-                        } catch (e) {
-                            response.infoLog += `[RenameTrigger] Could not parse RefreshSeries response: ${e.message}\n`;
-                        }
-                    }
-
-                    // Probe pending renames first — only fire RenameSeries if Sonarr
-                    // actually has work to do. Must run AFTER Refresh so mediainfo is current.
-                    let pendingCount = -1;
-                    try {
-                        const probeRes = request('GET', `${sonarrHost}/api/v3/rename?seriesId=${seriesId}`, {
-                            headers: { 'X-Api-Key': sonarrApiKey },
-                            timeout: 10000,
-                        });
-                        const pending = JSON.parse(probeRes.getBody('utf8'));
-                        pendingCount = Array.isArray(pending) ? pending.length : 0;
-                        response.infoLog += `[RenameTrigger] Pending renames after refresh: ${pendingCount}\n`;
-                    } catch (e) {
-                        response.infoLog += `[RenameTrigger] Rename probe failed (${e.message}), will trigger anyway.\n`;
-                    }
-
-                    if (pendingCount === 0) {
-                        response.infoLog += '[RenameTrigger] ✓ No rename needed — skipping RenameSeries.\n';
-                    } else {
-                        response.infoLog += '[RenameTrigger] Triggering RenameSeries...\n';
-                        const renameRes = request('POST', `${sonarrHost}/api/v3/command`, {
-                            headers: {
-                                'X-Api-Key': sonarrApiKey,
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                name: 'RenameSeries',
-                                seriesIds: [seriesId],
-                            }),
-                            timeout: 10000,
-                        });
-                        response.infoLog += `[RenameTrigger] RenameSeries response: ${renameRes.statusCode}\n`;
-                        try {
-                            const renameCmd = JSON.parse(renameRes.getBody('utf8'));
-                            if (renameCmd && renameCmd.id) {
-                                waitForCommand(sonarrHost, sonarrApiKey, renameCmd.id, 'RenameSeries');
-                            }
-                        } catch (e) {
-                            response.infoLog += `[RenameTrigger] Could not parse RenameSeries response: ${e.message}\n`;
-                        }
-                        response.infoLog += '[RenameTrigger] ✓ Sonarr rename command sent successfully!\n';
-                    }
+                    response.infoLog += `[RenameTrigger] Using series: ${show.title} (id=${show.id})\n`;
+                    refreshProbeAndRename({
+                        serviceName: 'Sonarr',
+                        host: sonarrHost,
+                        apiKey: sonarrApiKey,
+                        id: show.id,
+                        refreshName: 'RefreshSeries',
+                        renameName: 'RenameSeries',
+                        idsKey: 'seriesIds',
+                        probeParam: 'seriesId',
+                    });
                 }
             }
         }
