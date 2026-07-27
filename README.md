@@ -7,10 +7,11 @@ A Tdarr post-processing plugin that automatically triggers Radarr or Sonarr to r
 - 🎬 **Radarr Support**: Automatically rename movies after transcoding
 - 📺 **Sonarr Support**: Automatically rename TV series episodes after transcoding
 - 🔍 **Smart Detection**: Path-based detection with configurable path matching
-- 🎯 **Accurate Lookup**: Primary lookup by exact file path, fallback to IMDB/TMDB/TVDB IDs (client-side filtered against the full library to avoid Radarr's ignored-query-param footgun)
+- 🎯 **Accurate Lookup**: Instant series/movie lookup via folder-path matching, fallback to IMDB/TMDB/TVDB IDs (client-side filtered against the full library to avoid Radarr's ignored-query-param footgun)
 - ⚙️ **Flexible Configuration**: Enable/disable services independently with custom path filters
-- 🔄 **Synchronous Refresh + Rename**: Polls the Radarr/Sonarr command queue until `RefreshMovie`/`RefreshSeries` actually completes before triggering rename — eliminates the race that left files with stale codec tags after a transcode
-- ⚡ **No-op Skip**: Probes the rename-preview endpoint after refresh and skips the rename API call when nothing is pending
+- 🔄 **Disk Rescan Before Rename**: Triggers a disk-only rescan (no metadata provider hit) so the new file is detected
+- ⚡ **Non-Blocking**: Renames are fire-and-forget and rescans wait at most a configurable number of seconds — big-series rescans no longer stall the Tdarr worker
+- 🔐 **Log-Safe API Keys**: Keys can come from env vars or a credentials file, keeping them out of Tdarr's worker logs
 - 📝 **Detailed Logging**: Comprehensive logs for debugging and monitoring
 
 ## Installation
@@ -35,7 +36,7 @@ A Tdarr post-processing plugin that automatically triggers Radarr or Sonarr to r
 | `radarr_enabled` | Boolean | `true` | Enable Radarr processing |
 | `radarr_path_contains` | String | `/movies/` | Path must contain this string to trigger Radarr |
 | `radarr_host` | String | `http://localhost:7878` | Full URL to your Radarr instance |
-| `radarr_api_key` | String | *(empty)* | API Key for Radarr |
+| `radarr_api_key` | String | *(empty)* | API Key for Radarr — prefer the env var or credentials file (see below) so the key stays out of Tdarr's logs |
 
 #### Sonarr Settings
 
@@ -44,13 +45,33 @@ A Tdarr post-processing plugin that automatically triggers Radarr or Sonarr to r
 | `sonarr_enabled` | Boolean | `true` | Enable Sonarr processing |
 | `sonarr_path_contains` | String | `/tv/` | Path must contain this string to trigger Sonarr |
 | `sonarr_host` | String | `http://localhost:8989` | Full URL to your Sonarr instance |
-| `sonarr_api_key` | String | *(empty)* | API Key for Sonarr |
+| `sonarr_api_key` | String | *(empty)* | API Key for Sonarr — prefer the env var or credentials file (see below) so the key stays out of Tdarr's logs |
 
 #### Shared Settings
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `refresh_first` | Boolean | `true` | Trigger refresh before renaming to ensure new file is detected |
+| `refresh_first` | Boolean | `true` | Trigger a disk rescan before renaming to ensure the new file is detected |
+| `rescan_wait_seconds` | Number | `15` | Max seconds to wait for the rescan before deferring the rename to the next run (`0` = never wait) |
+
+### API Keys Without Leaking Them Into Logs
+
+Tdarr dumps **all plugin inputs** into the worker log on every run — so an API key set
+as a plugin input ends up in plain text in your logs. To avoid that, leave the
+`*_api_key` inputs empty and provide the keys one of these ways instead
+(resolution order: input → env var → credentials file):
+
+1. **Environment variables** on the Tdarr node/container: `RADARR_API_KEY` and `SONARR_API_KEY`
+2. **Credentials file** — `arr_credentials.json` next to the plugin, or at `/app/configs/arr_credentials.json` (Docker):
+
+```json
+{
+  "radarr_api_key": "your_radarr_api_key",
+  "sonarr_api_key": "your_sonarr_api_key"
+}
+```
+
+Restrict the file's permissions (e.g. `chmod 600`).
 
 ## Usage
 
@@ -116,11 +137,11 @@ Sonarr:
 1. **Path Detection**: Checks if file path contains configured strings
 2. **Service Selection**: Enables Radarr/Sonarr based on path matching
 3. **File Lookup**:
-   - **Primary**: Searches for exact file path match against the full Radarr/Sonarr library
+   - **Primary**: Matches the file path against the movie/series folder path (no per-series API calls)
    - **Fallback**: Filters the same already-fetched library client-side by IMDB/TMDB/TVDB ID extracted from the path (Radarr's `?imdbId=` query param is silently ignored, so server-side filtering is unreliable)
-4. **Refresh** (optional): Fires `RefreshMovie`/`RefreshSeries` and **polls `GET /api/v3/command/{id}` once per second** (60 s timeout) until the command reaches `completed`/`failed`/`aborted`. This guarantees the disk rescan + mediainfo update has finished before the rename runs.
-5. **Rename Probe**: Calls `GET /api/v3/rename?movieId=...` (or `?seriesId=...`). If the response is `[]`, skips the rename API call entirely.
-6. **Rename**: Fires `RenameMovie`/`RenameSeries` and waits for that command to complete the same way, so the plugin's success log reflects actual completion, not just queueing.
+4. **Catch-Up Rename**: Renames left pending by earlier runs are fired immediately (fire-and-forget)
+5. **Rescan** (optional): Triggers a disk-only rescan (`RescanMovie`/`RescanSeries`) and polls `GET /api/v3/command/{id}` for at most `rescan_wait_seconds`
+6. **Rename**: If the rescan finished in time and a rename is pending, fires the rename without waiting for it; otherwise the rename is picked up by the next run (step 4)
 
 ### ID Detection
 
@@ -133,19 +154,18 @@ The plugin automatically extracts IDs from file paths:
 ### API Commands Used
 
 **Radarr (v3 API):**
-- `GET /api/v3/movie` — List all movies (used for both file-path and IMDB/TMDB matching)
-- `POST /api/v3/command` with `RefreshMovie` — Refresh movie metadata + rescan disk
-- `GET /api/v3/command/{id}` — Poll command status until completion
-- `GET /api/v3/rename?movieId={id}` — Probe whether any rename is pending
-- `POST /api/v3/command` with `RenameMovie` — Trigger file rename
+- `GET /api/v3/movie` — List all movies (path + ID matching)
+- `GET /api/v3/rename?movieId={id}` — Probe pending renames
+- `POST /api/v3/command` with `RescanMovie` — Disk-only rescan
+- `GET /api/v3/command/{id}` — Poll rescan status (bounded by `rescan_wait_seconds`)
+- `POST /api/v3/command` with `RenameMovie` — Trigger file rename (fire-and-forget)
 
 **Sonarr (v3 API):**
-- `GET /api/v3/series` — List all series
-- `GET /api/v3/episodefile?seriesId=X` — Get episode files for series
-- `POST /api/v3/command` with `RefreshSeries` — Refresh series metadata + rescan disk
-- `GET /api/v3/command/{id}` — Poll command status until completion
-- `GET /api/v3/rename?seriesId={id}` — Probe whether any rename is pending
-- `POST /api/v3/command` with `RenameSeries` — Trigger file rename
+- `GET /api/v3/series` — List all series (folder-path + ID matching)
+- `GET /api/v3/rename?seriesId={id}` — Probe pending renames
+- `POST /api/v3/command` with `RescanSeries` — Disk-only rescan
+- `GET /api/v3/command/{id}` — Poll rescan status (bounded by `rescan_wait_seconds`)
+- `POST /api/v3/command` with `RenameSeries` — Trigger file rename (fire-and-forget)
 
 ## Example Log Output
 
@@ -159,15 +179,9 @@ The plugin automatically extracts IDs from file paths:
 [RenameTrigger] Looking up movie by file path...
 [RenameTrigger] Found movie by file path: K3 The Ice Princess (id=42)
 [RenameTrigger] Using movie: K3 The Ice Princess (id=42)
-[RenameTrigger] Triggering RefreshMovie...
-[RenameTrigger] RefreshMovie response: 201
-[RenameTrigger] Waiting for RefreshMovie (id=1724118) to finish before renaming...
-[RenameTrigger] RefreshMovie finished with status: completed
-[RenameTrigger] Pending renames after refresh: 1
-[RenameTrigger] Triggering RenameMovie...
-[RenameTrigger] RenameMovie response: 201
-[RenameTrigger] RenameMovie finished with status: completed
-[RenameTrigger] ✓ Radarr rename command sent successfully!
+[RenameTrigger] Triggering RescanMovie...
+[RenameTrigger] RescanMovie finished with status: completed
+[RenameTrigger] RenameMovie fired (201)
 ```
 
 ### No-op (file already correctly named)
@@ -189,17 +203,11 @@ The plugin automatically extracts IDs from file paths:
 [RenameTrigger] Detected IDs → imdb:tt6741278 tmdb:- tvdb:-
 [RenameTrigger] Processing with Sonarr at http://172.28.10.4:8989
 [RenameTrigger] Looking up series by episode file path...
-[RenameTrigger] Found series by episode file path: Invincible (id=23)
+[RenameTrigger] Matched series folder: Invincible (id=23)
 [RenameTrigger] Using series: Invincible (id=23)
-[RenameTrigger] Triggering RefreshSeries...
-[RenameTrigger] RefreshSeries response: 201
-[RenameTrigger] Waiting for RefreshSeries (id=98212) to finish before renaming...
-[RenameTrigger] RefreshSeries finished with status: completed
-[RenameTrigger] Pending renames after refresh: 1
-[RenameTrigger] Triggering RenameSeries...
-[RenameTrigger] RenameSeries response: 201
-[RenameTrigger] RenameSeries finished with status: completed
-[RenameTrigger] ✓ Sonarr rename command sent successfully!
+[RenameTrigger] Triggering RescanSeries...
+[RenameTrigger] RescanSeries finished with status: completed
+[RenameTrigger] RenameSeries fired (201)
 ```
 
 ## Requirements
@@ -257,6 +265,17 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 - Uses [sync-request](https://www.npmjs.com/package/sync-request) for synchronous HTTP calls
 
 ## Version History
+
+### 1.5.0 (2026-07-28)
+- API keys resolvable via env vars (`RADARR_API_KEY`/`SONARR_API_KEY`) or `arr_credentials.json`, keeping them out of Tdarr's worker logs
+
+### 1.4.0 (2026-07-27)
+- Non-blocking: renames fire-and-forget, rescan wait capped by `rescan_wait_seconds` (default 15s); deferred renames are caught up on the next run
+
+### 1.3.0 (2026-07-27)
+- Series lookup via folder-path prefix match instead of up to ~90 sequential episodefile calls
+- `RefreshMovie`/`RefreshSeries` replaced by disk-only `RescanMovie`/`RescanSeries` (no metadata-provider hit)
+- Based on the 1.2.0 codebase; the internal 1.2.1 refactor was not carried forward
 
 ### 1.2.1 (2026-07-02)
 - Fix: the "✓ rename command sent successfully" line is now only logged when the rename command actually completes; previously it was still printed after a failed or timed-out rename.

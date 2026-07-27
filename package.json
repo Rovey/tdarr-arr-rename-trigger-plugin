@@ -1,6 +1,6 @@
 {
   "name": "tdarr-arr-rename-trigger-plugin",
-  "version": "1.0.0",
+  "version": "1.5.0",
   "description": "Tdarr plugin to automatically trigger Radarr/Sonarr file rename after transcoding",
   "main": "Tdarr_Plugin_rovey_arr_rename_trigger.js",
   "scripts": {
