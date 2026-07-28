@@ -4,15 +4,13 @@ A Tdarr post-processing plugin that automatically triggers Radarr or Sonarr to r
 
 ## Features
 
-- 🎬 **Radarr Support**: Automatically rename movies after transcoding
-- 📺 **Sonarr Support**: Automatically rename TV series episodes after transcoding
-- 🔍 **Smart Detection**: Path-based detection with configurable path matching
-- 🎯 **Accurate Lookup**: Instant series/movie lookup via folder-path matching, fallback to IMDB/TMDB/TVDB IDs (client-side filtered against the full library to avoid Radarr's ignored-query-param footgun)
-- ⚙️ **Flexible Configuration**: Enable/disable services independently with custom path filters
-- 🔄 **Disk Rescan Before Rename**: Triggers a disk-only rescan (no metadata provider hit) so the new file is detected
-- ⚡ **Non-Blocking**: Renames are fire-and-forget and rescans wait at most a configurable number of seconds — big-series rescans no longer stall the Tdarr worker
-- 🔐 **Log-Safe API Keys**: Keys can come from env vars or a credentials file, keeping them out of Tdarr's worker logs
-- 📝 **Detailed Logging**: Comprehensive logs for debugging and monitoring
+- Triggers Radarr (movies) and Sonarr (TV series) to rename files after Tdarr finishes transcoding
+- Path-based detection with independent enable/disable and path filters per service
+- Instant lookup via folder-path matching, with IMDB/TMDB/TVDB ID fallback (filtered client-side against the full library, since Radarr silently ignores ID query parameters)
+- Optional disk-only rescan before renaming (no metadata provider hit) so the new file is detected
+- Non-blocking: renames are fire-and-forget, rescans wait at most a configurable number of seconds, and deferred renames are caught up on the next run
+- API keys can be provided via environment variables or a credentials file, keeping them out of Tdarr's worker logs
+- Detailed logging for debugging and monitoring
 
 ## Installation
 
@@ -81,7 +79,7 @@ Restrict the file's permissions (e.g. `chmod 600`).
 2. Select `Tdarr_Plugin_rovey_arr_rename_trigger` from the plugin dropdown
 3. Configure the plugin settings:
    - Set your Radarr/Sonarr host URLs
-   - Add your API keys
+   - Provide your API keys — preferably via env vars or the credentials file (see [API Keys Without Leaking Them Into Logs](#api-keys-without-leaking-them-into-logs)), not as plugin inputs
    - Configure path matching strings (e.g., `/movies/`, `/tv/`, `/media/films/`)
 4. Enable/disable Radarr or Sonarr based on your needs
 
@@ -96,13 +94,13 @@ Radarr:
   - Enabled: true
   - Path Contains: /movies/
   - Host: http://192.168.1.100:7878
-  - API Key: your_radarr_api_key
+  - API Key: (empty — provided via env var or credentials file)
 
 Sonarr:
   - Enabled: true
   - Path Contains: /tv/
   - Host: http://192.168.1.100:8989
-  - API Key: your_sonarr_api_key
+  - API Key: (empty — provided via env var or credentials file)
 ```
 
 #### Only Movies (Sonarr Disabled)
@@ -112,7 +110,7 @@ Radarr:
   - Enabled: true
   - Path Contains: /media/
   - Host: http://localhost:7878
-  - API Key: your_radarr_api_key
+  - API Key: (empty — provided via env var or credentials file)
 
 Sonarr:
   - Enabled: false
@@ -187,12 +185,9 @@ The plugin automatically extracts IDs from file paths:
 ### No-op (file already correctly named)
 
 ```
-[RenameTrigger] Triggering RefreshMovie...
-[RenameTrigger] RefreshMovie response: 201
-[RenameTrigger] Waiting for RefreshMovie (id=1724120) to finish before renaming...
-[RenameTrigger] RefreshMovie finished with status: completed
-[RenameTrigger] Pending renames after refresh: 0
-[RenameTrigger] ✓ No rename needed — skipping RenameMovie.
+[RenameTrigger] Triggering RescanMovie...
+[RenameTrigger] RescanMovie finished with status: completed
+[RenameTrigger] ✓ No rename needed.
 ```
 
 ### Successful Sonarr Rename
@@ -242,9 +237,10 @@ The plugin automatically extracts IDs from file paths:
 ### Files Not Actually Renamed
 
 - Enable `refresh_first` option (the plugin needs it to update mediainfo before checking for a rename)
-- Confirm the plugin log contains `RefreshMovie finished with status: completed` and `Pending renames after refresh: N` — if the refresh times out (60 s), open Radarr's System → Tasks page and look for a stuck queue
-- If `Pending renames after refresh: 0` appears, Radarr genuinely doesn't see anything to rename — check your naming scheme in Radarr/Sonarr settings against the actual filename
+- Confirm the plugin log contains `RescanMovie finished with status: completed` (or `RescanSeries ...`). If you see `Rescan still busy — rename deferred to a later run.` instead, the rescan outlived `rescan_wait_seconds` — the rename is caught up automatically on the next plugin run for that movie/series, or you can raise `rescan_wait_seconds`
+- If the log shows `✓ No rename needed.`, Radarr/Sonarr genuinely doesn't see anything to rename — check your naming scheme in Radarr/Sonarr settings against the actual filename
 - Manually call `GET /api/v3/rename?movieId=...` (or `?seriesId=...`) to confirm what Radarr/Sonarr think is pending
+- Rescans that never finish usually mean a jammed command queue — check System → Tasks in Radarr/Sonarr
 
 ## Contributing
 

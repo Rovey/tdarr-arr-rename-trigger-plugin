@@ -87,9 +87,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Uses movieIds/seriesIds arrays for command parameters (verified against Radarr source code)
 - ID extraction from file paths: IMDB (tt\d+), TMDB (tmdbid-\d+), TVDB (tvdbid-\d+)
 
-[1.5.0]: https://github.com/Rovey/Tdarr-arr-rename-trigger-plugin/releases/tag/v1.5.0
-[1.4.0]: https://github.com/Rovey/Tdarr-arr-rename-trigger-plugin/releases/tag/v1.5.0
-[1.3.0]: https://github.com/Rovey/Tdarr-arr-rename-trigger-plugin/releases/tag/v1.5.0
-[1.2.1]: https://github.com/Rovey/Tdarr-arr-rename-trigger-plugin/releases/tag/v1.2.1
-[1.2.0]: https://github.com/Rovey/Tdarr-arr-rename-trigger-plugin/releases/tag/v1.2.0
-[1.0.0]: https://github.com/Rovey/Tdarr-arr-rename-trigger-plugin/releases/tag/v1.0.0
+[1.5.0]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.5.0
+[1.4.0]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.5.0
+[1.3.0]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.5.0
+[1.2.1]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.2.1
+[1.2.0]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.2.0
+[1.0.0]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.0.0
