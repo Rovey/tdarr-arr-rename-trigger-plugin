@@ -5,7 +5,13 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-Versions 1.1.0, 1.3.0 and 1.4.0 were never released under a tag of their own — their changes first shipped in [v1.5.0], so those headings carry no release link.
+Versions 1.1.0, 1.3.0 and 1.4.0 were never released under a tag of their own — their changes first shipped in [1.5.0], so those headings carry no release link.
+
+## [1.6.0] - 2026-09-20
+
+### Changed
+- `rescan_wait_seconds` is now declared as a `string` input instead of a `number`. Tdarr casts inputs before the plugin runs — for a `number` input it applies `Number()` and rewrites `NaN` to `0` — so a value typed wrong in the flow (`abc`, `20s`) reached the plugin as `0`, meaning "never wait", and the 1.5.1 fallback never saw the original value. As a string the typed value arrives intact and the plugin's own parser falls back to 15 seconds. The field is a text box in the Tdarr UI either way and existing values keep working: `15` reads as 15 seconds, `0` still means never wait.
+- The test harness uses a faithful copy of Tdarr's `loadDefaultValues` instead of a simplified stub, so this host-side casting is covered by the suite (27 tests).
 
 ## [1.5.1] - 2026-09-20
 
@@ -101,6 +107,7 @@ Versions 1.1.0, 1.3.0 and 1.4.0 were never released under a tag of their own —
 - Uses movieIds/seriesIds arrays for command parameters (verified against Radarr source code)
 - ID extraction from file paths: IMDB (tt\d+), TMDB (tmdbid-\d+), TVDB (tvdbid-\d+)
 
+[1.6.0]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.6.0
 [1.5.1]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.5.1
 [1.5.0]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.5.0
 [1.2.1]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.2.1
