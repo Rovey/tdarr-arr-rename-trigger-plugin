@@ -4,7 +4,7 @@
   "description": "Tdarr plugin to automatically trigger Radarr/Sonarr file rename after transcoding",
   "main": "Tdarr_Plugin_rovey_arr_rename_trigger.js",
   "scripts": {
-    "test": "echo \"No tests specified\" && exit 0"
+    "test": "node --test"
   },
   "repository": {
     "type": "git",
