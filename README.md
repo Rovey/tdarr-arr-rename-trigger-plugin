@@ -50,7 +50,7 @@ A Tdarr post-processing plugin that automatically triggers Radarr or Sonarr to r
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `refresh_first` | Boolean | `true` | Trigger a disk rescan before renaming to ensure the new file is detected |
-| `rescan_wait_seconds` | Number | `15` | Max seconds to wait for the rescan before deferring the rename to the next run (`0` = never wait; anything that is not a non-negative number falls back to `15`) |
+| `rescan_wait_seconds` | String | `15` | Max seconds to wait for the rescan before deferring the rename to the next run (`0` = never wait; anything that is not a whole number of seconds falls back to `15`). It is a text field in Tdarr either way — the input is declared as a string so Tdarr cannot turn a typo into `0`, which would silently mean "never wait" |
 
 ### API Keys Without Leaking Them Into Logs
 

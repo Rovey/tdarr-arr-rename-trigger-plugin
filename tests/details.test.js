@@ -67,8 +67,9 @@ const EXPECTED_INPUTS = [
   },
   {
     name: 'rescan_wait_seconds',
-    type: 'number',
-    defaultValue: 15,
+    // A string, so Tdarr's Number() cast cannot turn a mistyped value into 0.
+    type: 'string',
+    defaultValue: '15',
     inputUI: { type: 'text' },
   },
 ];
@@ -87,7 +88,7 @@ test('details() reports the identity Tdarr keys plugins on', () => {
   assert.equal(details.Name, 'Trigger Radarr/Sonarr Rename');
   assert.equal(details.Type, 'Video');
   assert.equal(details.Operation, 'Transcode');
-  assert.equal(details.Version, '1.5.1');
+  assert.equal(details.Version, '1.6.0');
   assert.equal(details.Tags, 'post-processing,3rd party,radarr,sonarr');
 });
 

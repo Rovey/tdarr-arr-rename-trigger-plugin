@@ -22,20 +22,43 @@ const PLUGIN_PATH = nodePath.join(__dirname, '..', '..', 'Tdarr_Plugin_rovey_arr
 const CREDENTIALS_FILE_NAME = 'arr_credentials.json';
 
 /**
- * Stand-in for Tdarr's '../methods/lib'. The real loadDefaultValues fills every
- * input the caller left out with the declared defaultValue and returns the
- * merged object, with the declared types intact (the plugin compares with ===).
+ * Stand-in for Tdarr's '../methods/lib'. loadDefaultValues below is a faithful
+ * copy of Tdarr's own implementation (server file
+ * /app/server/Tdarr/Plugins/methods/loadDefaultValues.js, read from the running
+ * container on 2026-09-20), because what it does to an input before the plugin
+ * sees it is part of the behavior under test: it trims strings, substitutes the
+ * declared defaultValue for undefined and '', casts a 'boolean' input to a real
+ * boolean, and casts a 'number' input with Number() — turning anything
+ * unparseable into 0.
  */
 function createLibStub() {
   return () => ({
     loadDefaultValues(inputs, detailsSource) {
       const pluginDetails = typeof detailsSource === 'function' ? detailsSource() : detailsSource;
       const merged = Object.assign({}, inputs);
-      for (const input of pluginDetails.Inputs) {
-        if (merged[input.name] === undefined) {
-          merged[input.name] = input.defaultValue;
+      const declaredInputs = pluginDetails.Inputs || pluginDetails.inputs || [];
+
+      for (const declared of declaredInputs) {
+        if (typeof merged[declared.name] === 'string') {
+          merged[declared.name] = merged[declared.name].trim();
+        }
+
+        if (merged[declared.name] === undefined || merged[declared.name] === '') {
+          merged[declared.name] = declared.defaultValue;
+        }
+
+        if (declared.type === 'boolean') {
+          merged[declared.name] = !!(merged[declared.name] === 'true' || merged[declared.name] === true);
+        }
+
+        if (declared.type === 'number') {
+          merged[declared.name] = Number(merged[declared.name]);
+          if (Number.isNaN(merged[declared.name])) {
+            merged[declared.name] = 0;
+          }
         }
       }
+
       return merged;
     },
   });
