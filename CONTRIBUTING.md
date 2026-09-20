@@ -54,9 +54,16 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
    cd Tdarr-arr-rename-trigger-plugin
    ```
 
-2. Copy the plugin to your Tdarr plugins directory for testing
+2. Run the test suite:
+   ```bash
+   npm test
+   ```
+   It uses Node's built-in test runner (Node 18+), so no `npm install` and no network access are
+   needed — the tests live in `tests/` and mock everything the plugin talks to.
 
-3. Make your changes and test in Tdarr
+3. Copy the plugin to your Tdarr plugins directory for testing
+
+4. Make your changes and test in Tdarr
 
 ## Coding Standards
 
@@ -72,6 +79,7 @@ Enhancement suggestions are tracked as GitHub issues. When creating an enhanceme
 
 Before submitting a pull request, verify:
 
+- [ ] `npm test` passes
 - [ ] Plugin loads successfully in Tdarr
 - [ ] Path detection works for both Radarr and Sonarr
 - [ ] File lookup works by path and by ID
