@@ -274,35 +274,4 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## Version History
 
-### 1.5.0 (2026-07-28)
-- API keys resolvable via env vars (`RADARR_API_KEY`/`SONARR_API_KEY`) or `arr_credentials.json`, keeping them out of Tdarr's worker logs
-
-### 1.4.0 (2026-07-27)
-- Non-blocking: renames fire-and-forget, rescan wait capped by `rescan_wait_seconds` (default 15s); deferred renames are caught up on the next run
-
-### 1.3.0 (2026-07-27)
-- Series lookup via folder-path prefix match instead of up to ~90 sequential episodefile calls
-- `RefreshMovie`/`RefreshSeries` replaced by disk-only `RescanMovie`/`RescanSeries` (no metadata-provider hit)
-- Based on the 1.2.0 codebase; the internal 1.2.1 refactor was not carried forward
-
-### 1.2.1 (2026-07-02)
-- Fix: the "✓ rename command sent successfully" line is now only logged when the rename command actually completes; previously it was still printed after a failed or timed-out rename.
-- Refactor: the Radarr and Sonarr branches share one refresh → probe → rename flow via internal helpers instead of two near-identical copies. API calls and log output are unchanged.
-
-### 1.2.0 (2026-05-05)
-- Fix the silent IMDB/TMDB/TVDB fallback bug: Radarr's `GET /api/v3/movie?imdbId=` is ignored server-side and returns the full library, so the previous code grabbed `[0]` (the alphabetically-first movie) instead of the requested title. Lookup now filters the already-fetched library client-side; same fix applied to the Sonarr fallback.
-- Add idempotent skip: probe `GET /api/v3/rename?movieId=...` (or `?seriesId=...`) after the refresh completes, and skip the `RenameMovie`/`RenameSeries` API call entirely when nothing is pending.
-- Wait for the rename command to complete (poll `GET /api/v3/command/{id}`) before logging success, so the plugin's "✓ rename command sent successfully" message reflects actual completion rather than just queueing.
-
-### 1.1.0 (2026-05-05)
-- Fix race condition where Tdarr's post-transcode rename trigger left files with stale codec tags in the filename. The previous fire-and-forget pattern queued `RefreshMovie` and `RenameMovie` back-to-back; Radarr's command worker could execute the rename before the refresh's disk rescan + mediainfo update completed, so the rename evaluator compared the new filename against stale DB metadata, found it "matched", and skipped the rename. The plugin now polls `GET /api/v3/command/{id}` once per second (60 s timeout) until the refresh reaches `completed`/`failed`/`aborted` before triggering the rename. Same change applied to the Sonarr branch.
-- Sleep between polls uses `Atomics.wait` rather than busy-waiting, so polling does not pin a CPU core.
-
-### 1.0.0 (2025-10-09)
-- Initial release
-- Path-based Radarr/Sonarr detection
-- File path lookup with ID fallback
-- Support for IMDB, TMDB, and TVDB IDs
-- Independent enable/disable toggles
-- Configurable path matching
-- Optional refresh before rename
+The full release history is kept in [CHANGELOG.md](CHANGELOG.md).
