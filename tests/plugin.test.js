@@ -296,7 +296,8 @@ test('defers the rename when rescan_wait_seconds is 0', () => {
     + '[RenameTrigger] Found movie by file path: Example Movie (id=7)\n'
     + '[RenameTrigger] Using movie: Example Movie (id=7)\n'
     + '[RenameTrigger] Triggering RescanMovie...\n'
-    + '[RenameTrigger] Rescan still busy — rename deferred to a later run.\n',
+    + '[RenameTrigger] Not waiting for the rescan (rescan_wait_seconds = 0)'
+    + ' — rename deferred to a later run.\n',
   );
   assert.deepEqual(calls, [
     { method: 'GET', url: `${RADARR_HOST}/api/v3/movie`, options: getOptions(RADARR_KEY, 15000) },

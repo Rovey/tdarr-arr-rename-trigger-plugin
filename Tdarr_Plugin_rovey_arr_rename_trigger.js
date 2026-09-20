@@ -3,6 +3,8 @@ module.exports.dependencies = [
     'sync-request',
 ];
 
+const RESCAN_WAIT_DEFAULT_SECONDS = 15;
+
 const details = () => ({
     id: 'Tdarr_Plugin_rovey_arr_rename_trigger',
     Stage: 'Post-processing',
@@ -112,7 +114,7 @@ const details = () => ({
         {
             name: 'rescan_wait_seconds',
             type: 'number',
-            defaultValue: 15,
+            defaultValue: RESCAN_WAIT_DEFAULT_SECONDS,
             inputUI: {
                 type: 'text',
             },
@@ -182,6 +184,18 @@ const createApiKeyResolver = (log) => {
         if (credentials === null) credentials = readCredentialsFile(log);
         return (credentials[fileField] || '').toString().trim();
     };
+};
+
+// Tdarr hands inputs over as strings. A value we cannot read as a non-negative
+// number means the wait was never configured, so it falls back to the declared
+// default instead of 0, which would silently mean "never wait".
+const parseRescanWaitSeconds = (value) => {
+    const raw = value === undefined || value === null ? '' : String(value).trim();
+    const seconds = typeof value === 'number' ? value : parseInt(raw, 10);
+    if (!Number.isFinite(seconds) || seconds < 0) {
+        return RESCAN_WAIT_DEFAULT_SECONDS;
+    }
+    return seconds;
 };
 
 // Poll a queued *arr command until it finishes (or timeout). Without this,
@@ -301,9 +315,7 @@ const readSettings = (inputs, log) => {
             apiKey: resolveApiKey(inputs.sonarr_api_key, 'SONARR_API_KEY', 'sonarr_api_key'),
         },
         refreshFirst: inputs.refresh_first === true,
-        // A non-numeric value falls through to 0 instead of the declared default
-        // of 15. Current behavior, see tidy-project report.
-        rescanWaitMs: Math.max(0, parseInt(inputs.rescan_wait_seconds, 10) || 0) * 1000,
+        rescanWaitMs: parseRescanWaitSeconds(inputs.rescan_wait_seconds) * 1000,
     };
 };
 
@@ -411,7 +423,10 @@ const rescanThenRename = (context, target, id) => {
 
     try {
         const rescanCmd = JSON.parse(rescanRes.getBody('utf8'));
-        if (rescanCmd && rescanCmd.id && context.rescanWaitMs > 0
+        if (context.rescanWaitMs === 0) {
+            context.log('[RenameTrigger] Not waiting for the rescan (rescan_wait_seconds = 0)'
+                + ' — rename deferred to a later run.\n');
+        } else if (rescanCmd && rescanCmd.id
             && waitForCommand(context.request, context.log, target.host, target.apiKey,
                 rescanCmd.id, target.rescanCommand, context.rescanWaitMs)) {
             if (probePendingRenames(context, target, id) > 0) {
