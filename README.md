@@ -1,175 +1,161 @@
-# Tdarr Radarr/Sonarr Rename Trigger Plugin
+<div align="center">
 
-A Tdarr post-processing plugin that automatically triggers Radarr or Sonarr to rename media files after transcoding is complete.
+# Tdarr Radarr/Sonarr Rename Trigger
+
+[![Latest release](https://img.shields.io/github/v/release/Rovey/tdarr-arr-rename-trigger-plugin?color=1E8E3E)](https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/latest)
+[![License: MIT](https://img.shields.io/github/license/Rovey/tdarr-arr-rename-trigger-plugin?color=blue)](LICENSE)
+![Tdarr 2.x](https://img.shields.io/badge/Tdarr-2.x-6C5CE7)
+![Radarr / Sonarr v3 API](https://img.shields.io/badge/Radarr%20%2F%20Sonarr-v3%20API-FFC230)
+![Node 14+](https://img.shields.io/badge/Node-14%2B-339933?logo=nodedotjs&logoColor=white)
+
+**Transcoded a file? Radarr and Sonarr rename it, automatically.**
+
+A Tdarr post-processing plugin that tells Radarr or Sonarr to rescan and rename a file the moment Tdarr is done with it — so your filenames stop lying about what's inside them.
+
+[Install](#install) · [Configure](#configure) · [How it works](#how-it-works) · [Troubleshooting](#troubleshooting) · [FAQ](#faq)
+
+</div>
+
+> [!NOTE]
+> Unofficial community plugin. Not affiliated with or endorsed by Tdarr, Radarr or Sonarr.
+
+## The problem it solves
+
+Your naming scheme puts the codec in the filename: `Movie (2024) [Remux-2160p][TrueHD Atmos 7.1][VC1].mkv`. Tdarr re-encodes that file to h265 with an AC-3 track — and the filename still says TrueHD and VC-1, because Radarr and Sonarr have no idea anything changed.
+
+Trigger a rename by hand and it often does nothing: the *arr still has the old mediainfo in its database, compares it against the new filename, decides it already matches, and skips. You need a **disk rescan first, then a rename** — in that order, with the rescan actually finished. That's what this plugin does, at the end of your flow, without blocking the Tdarr worker while it waits.
 
 ## Features
 
-- Triggers Radarr (movies) and Sonarr (TV series) to rename files after Tdarr finishes transcoding
-- Path-based detection with independent enable/disable and path filters per service
-- Instant lookup via folder-path matching, with IMDB/TMDB/TVDB ID fallback (filtered client-side against the full library, since Radarr silently ignores ID query parameters)
-- Optional disk-only rescan before renaming (no metadata provider hit) so the new file is detected
-- Non-blocking: renames are fire-and-forget, rescans wait at most a configurable number of seconds, and deferred renames are caught up on the next run
-- API keys can be provided via environment variables or a credentials file, keeping them out of Tdarr's worker logs
-- Detailed logging for debugging and monitoring
+- **Both services, one node** — routes to Radarr or Sonarr based on the file path, with independent toggles and path filters.
+- **Finds the item reliably** — matches the movie file path or the series folder first, then falls back to an IMDB/TMDB/TVDB id from the path, filtered client-side (Radarr silently ignores `?imdbId=`, so server-side filtering returns the wrong title).
+- **No stale renames** — triggers a disk-only rescan (`RescanMovie`/`RescanSeries`), waits for it to finish, and only then fires the rename.
+- **Never blocks your queue** — the rescan wait is capped (default 15 s) and renames are fire-and-forget; anything left over is caught up on the next run.
+- **Keeps your API keys out of the logs** — read them from an env var or a credentials file instead of plugin inputs, which Tdarr dumps into every job report.
+- **Tested** — 27 tests, no network, no dependencies to install.
 
-## Installation
+## Install
 
-1. Copy `Tdarr_Plugin_rovey_arr_rename_trigger.js` to your Tdarr plugins directory:
-   - **Docker**: `/app/server/Tdarr/Plugins/Local/`
-   - **Windows**: `C:\ProgramData\Tdarr\Plugins\Local\`
-   - **Linux**: `/opt/tdarr/Plugins/Local/` or `~/.config/Tdarr/Plugins/Local/`
+1. **Copy one file** — `Tdarr_Plugin_rovey_arr_rename_trigger.js` from the [latest release](https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/latest) into your Tdarr plugins folder:
 
-2. Restart Tdarr or reload plugins
+   | Setup | Path |
+   | --- | --- |
+   | Docker | `/app/server/Tdarr/Plugins/Local/` |
+   | Windows | `C:\ProgramData\Tdarr\Plugins\Local\` |
+   | Linux | `/opt/tdarr/Plugins/Local/` or `~/.config/Tdarr/Plugins/Local/` |
 
-3. The plugin will automatically install its dependencies (`sync-request`)
+   Keep the file name exactly as it is — Tdarr loads classic plugins by file name.
 
-## Configuration
+2. **Reload plugins** in Tdarr (or restart it). Tdarr installs the plugin's one dependency, `sync-request`, on first run.
 
-### Plugin Inputs
+3. **Add it to your flow** as a **Classic Plugin** node (`runClassicTranscodePlugin`), select `Tdarr_Plugin_rovey_arr_rename_trigger`, and wire it after *Replace Original File*.
 
-#### Radarr Settings
+## Configure
+
+### Radarr
 
 | Setting | Type | Default | Description |
-|---------|------|---------|-------------|
+| --- | --- | --- | --- |
 | `radarr_enabled` | Boolean | `true` | Enable Radarr processing |
-| `radarr_path_contains` | String | `/movies/` | Path must contain this string to trigger Radarr |
+| `radarr_path_contains` | String | `/movies/` | Path must contain this string to route to Radarr |
 | `radarr_host` | String | `http://localhost:7878` | Full URL to your Radarr instance |
-| `radarr_api_key` | String | *(empty)* | API Key for Radarr — prefer the env var or credentials file (see below) so the key stays out of Tdarr's logs |
+| `radarr_api_key` | String | *(empty)* | Leave empty — see [API keys](#api-keys-without-leaking-them-into-logs) |
 
-#### Sonarr Settings
+### Sonarr
 
 | Setting | Type | Default | Description |
-|---------|------|---------|-------------|
+| --- | --- | --- | --- |
 | `sonarr_enabled` | Boolean | `true` | Enable Sonarr processing |
-| `sonarr_path_contains` | String | `/tv/` | Path must contain this string to trigger Sonarr |
+| `sonarr_path_contains` | String | `/tv/` | Path must contain this string to route to Sonarr |
 | `sonarr_host` | String | `http://localhost:8989` | Full URL to your Sonarr instance |
-| `sonarr_api_key` | String | *(empty)* | API Key for Sonarr — prefer the env var or credentials file (see below) so the key stays out of Tdarr's logs |
+| `sonarr_api_key` | String | *(empty)* | Leave empty — see [API keys](#api-keys-without-leaking-them-into-logs) |
 
-#### Shared Settings
+### Shared
 
 | Setting | Type | Default | Description |
-|---------|------|---------|-------------|
-| `refresh_first` | Boolean | `true` | Trigger a disk rescan before renaming to ensure the new file is detected |
-| `rescan_wait_seconds` | String | `15` | Max seconds to wait for the rescan before deferring the rename to the next run (`0` = never wait; anything that is not a whole number of seconds falls back to `15`). It is a text field in Tdarr either way — the input is declared as a string so Tdarr cannot turn a typo into `0`, which would silently mean "never wait" |
+| --- | --- | --- | --- |
+| `refresh_first` | Boolean | `true` | Rescan the file from disk before renaming, so the *arr sees the new mediainfo |
+| `rescan_wait_seconds` | String | `15` | Max seconds to wait for that rescan before deferring the rename to the next run. `0` = never wait. A text field: anything that isn't a whole number of seconds falls back to `15`, so a typo can't silently mean "never wait" |
 
-### API Keys Without Leaking Them Into Logs
+Path matching is case-insensitive, and a path can match both services — then both run, Radarr first.
 
-Tdarr dumps **all plugin inputs** into the worker log on every run — so an API key set
-as a plugin input ends up in plain text in your logs. To avoid that, leave the
-`*_api_key` inputs empty and provide the keys one of these ways instead
-(resolution order: input → env var → credentials file):
+<details>
+<summary><b>Example setups</b></summary>
+<br>
 
-1. **Environment variables** on the Tdarr node/container: `RADARR_API_KEY` and `SONARR_API_KEY`
-2. **Credentials file** — `arr_credentials.json` next to the plugin, or at `/app/configs/arr_credentials.json` (Docker):
+**Separate movie and TV libraries** — the defaults, with your own hosts:
 
-```json
-{
-  "radarr_api_key": "your_radarr_api_key",
-  "sonarr_api_key": "your_sonarr_api_key"
-}
+```text
+radarr_path_contains: /movies/     sonarr_path_contains: /tv/
+radarr_host: http://192.168.1.100:7878
+sonarr_host: http://192.168.1.100:8989
 ```
 
-Restrict the file's permissions (e.g. `chmod 600`).
+**Movies only** — one library, Sonarr off:
 
-## Usage
-
-### In Tdarr Flow
-
-1. Add the plugin to your Tdarr Flow using the **Classic Plugin** node (`runClassicTranscodePlugin`)
-2. Select `Tdarr_Plugin_rovey_arr_rename_trigger` from the plugin dropdown
-3. Configure the plugin settings:
-   - Set your Radarr/Sonarr host URLs
-   - Provide your API keys — preferably via env vars or the credentials file (see [API Keys Without Leaking Them Into Logs](#api-keys-without-leaking-them-into-logs)), not as plugin inputs
-   - Configure path matching strings (e.g., `/movies/`, `/tv/`, `/media/films/`)
-4. Enable/disable Radarr or Sonarr based on your needs
-
-> **Note:** This is a **Classic Plugin** with Stage: `Post-processing`. In Tdarr Flows, use the `runClassicTranscodePlugin` node to execute it after your transcode operations.
-
-### Example Configurations
-
-#### Separate Movie and TV Libraries
-
-```
-Radarr:
-  - Enabled: true
-  - Path Contains: /movies/
-  - Host: http://192.168.1.100:7878
-  - API Key: (empty — provided via env var or credentials file)
-
-Sonarr:
-  - Enabled: true
-  - Path Contains: /tv/
-  - Host: http://192.168.1.100:8989
-  - API Key: (empty — provided via env var or credentials file)
+```text
+radarr_enabled: true      radarr_path_contains: /media/
+sonarr_enabled: false
 ```
 
-#### Only Movies (Sonarr Disabled)
+**Custom folder names** — anything the path contains works:
 
-```
-Radarr:
-  - Enabled: true
-  - Path Contains: /media/
-  - Host: http://localhost:7878
-  - API Key: (empty — provided via env var or credentials file)
-
-Sonarr:
-  - Enabled: false
+```text
+radarr_path_contains: /mnt/storage/films/
+sonarr_path_contains: /mnt/storage/series/
 ```
 
-#### Custom Paths
+</details>
 
+### API keys without leaking them into logs
+
+> [!WARNING]
+> Tdarr writes **every plugin input** into the job report (`Loaded plugin inputs: { ... }`). An API key set as a plugin input therefore sits in plain text in one report per processed file — and an *arr API key grants full read/write access to your whole library.
+
+Leave `radarr_api_key` and `sonarr_api_key` **empty** and provide the keys another way. Resolution order is **input → environment variable → credentials file**:
+
+1. **Environment variables** on the Tdarr node or container: `RADARR_API_KEY` and `SONARR_API_KEY`.
+2. **Credentials file** — `arr_credentials.json`, either next to the plugin or at `/app/configs/arr_credentials.json` (Docker):
+
+   ```json
+   {
+     "radarr_api_key": "your_radarr_api_key",
+     "sonarr_api_key": "your_sonarr_api_key"
+   }
+   ```
+
+   Restrict it: `chmod 600 arr_credentials.json`.
+
+If a key ever went through a plugin input, rotate it: *Radarr/Sonarr → Settings → General → API Key*.
+
+## How it works
+
+```mermaid
+flowchart LR
+    A["Tdarr flow<br/>Replace Original File"] --> B["Rename Trigger"]
+    B -- "path contains /movies/ or /tv/" --> C{"Radarr<br/>or Sonarr"}
+    C -- "GET /api/v3/movie · /series" --> D["find by file path<br/>or by imdb/tmdb/tvdb id"]
+    D -- "POST RescanMovie · RescanSeries" --> E["poll GET /api/v3/command/ID<br/>up to rescan_wait_seconds"]
+    E -- "GET /api/v3/rename?movieId=…" --> F{"rename<br/>pending?"}
+    F -- "yes" --> G["POST RenameMovie · RenameSeries<br/>fire and forget"]
+    F -- "no" --> H["done — nothing to rename"]
 ```
-Radarr:
-  - Enabled: true
-  - Path Contains: /mnt/storage/films/
-  
-Sonarr:
-  - Enabled: true
-  - Path Contains: /mnt/storage/series/
-```
 
-## How It Works
+1. **Route** — the file path decides whether Radarr, Sonarr, or both handle it.
+2. **Look up** — match the movie file path or the series folder; otherwise fall back to an id parsed from the path.
+3. **Catch up** — anything a previous run left pending is renamed straight away.
+4. **Rescan** — a disk-only rescan, polled once a second until it reports `completed`, bounded by `rescan_wait_seconds`.
+5. **Rename** — only if the *arr says a rename is actually pending, and without waiting for it to finish.
 
-### Processing Flow
+Ids are read from the path the way Radarr and Sonarr write them: `tt1234567` → IMDB, `tmdb-12345`/`tmdbid-12345` → TMDB, `tvdb-12345`/`tvdbid-12345` → TVDB.
 
-1. **Path Detection**: Checks if file path contains configured strings
-2. **Service Selection**: Enables Radarr/Sonarr based on path matching
-3. **File Lookup**:
-   - **Primary**: Matches the file path against the movie/series folder path (no per-series API calls)
-   - **Fallback**: Filters the same already-fetched library client-side by IMDB/TMDB/TVDB ID extracted from the path (Radarr's `?imdbId=` query param is silently ignored, so server-side filtering is unreliable)
-4. **Catch-Up Rename**: Renames left pending by earlier runs are fired immediately (fire-and-forget)
-5. **Rescan** (optional): Triggers a disk-only rescan (`RescanMovie`/`RescanSeries`) and polls `GET /api/v3/command/{id}` for at most `rescan_wait_seconds`
-6. **Rename**: If the rescan finished in time and a rename is pending, fires the rename without waiting for it; otherwise the rename is picked up by the next run (step 4)
+**API calls used** (v3): `GET /movie` · `GET /series` · `GET /rename?movieId=` · `GET /rename?seriesId=` · `POST /command` (`RescanMovie`, `RescanSeries`, `RenameMovie`, `RenameSeries`) · `GET /command/{id}`.
 
-### ID Detection
+## Example log output
 
-The plugin automatically extracts IDs from file paths:
+A file that needed renaming:
 
-- **IMDB**: `tt1234567` → `{imdb-tt1234567}`
-- **TMDB**: `tmdb-12345` or `tmdbid-12345` → `{tmdb-12345}`
-- **TVDB**: `tvdb-12345` or `tvdbid-12345` → `{tvdb-12345}`
-
-### API Commands Used
-
-**Radarr (v3 API):**
-- `GET /api/v3/movie` — List all movies (path + ID matching)
-- `GET /api/v3/rename?movieId={id}` — Probe pending renames
-- `POST /api/v3/command` with `RescanMovie` — Disk-only rescan
-- `GET /api/v3/command/{id}` — Poll rescan status (bounded by `rescan_wait_seconds`)
-- `POST /api/v3/command` with `RenameMovie` — Trigger file rename (fire-and-forget)
-
-**Sonarr (v3 API):**
-- `GET /api/v3/series` — List all series (folder-path + ID matching)
-- `GET /api/v3/rename?seriesId={id}` — Probe pending renames
-- `POST /api/v3/command` with `RescanSeries` — Disk-only rescan
-- `GET /api/v3/command/{id}` — Poll rescan status (bounded by `rescan_wait_seconds`)
-- `POST /api/v3/command` with `RenameSeries` — Trigger file rename (fire-and-forget)
-
-## Example Log Output
-
-### Successful Radarr Rename
-
-```
+```text
 [RenameTrigger] Path: /data/media/movies/K3 The Ice Princess (2006) {imdb-tt0812265}/K3 The Ice Princess (2006).mkv
 [RenameTrigger] Path contains '/movies/' → Using Radarr
 [RenameTrigger] Detected IDs → imdb:tt0812265 tmdb:- tvdb:-
@@ -182,97 +168,120 @@ The plugin automatically extracts IDs from file paths:
 [RenameTrigger] RenameMovie fired (201)
 ```
 
-### No-op (file already correctly named)
+A series that was already named correctly:
 
-```
-[RenameTrigger] Triggering RescanMovie...
-[RenameTrigger] RescanMovie finished with status: completed
+```text
+[RenameTrigger] Path contains '/tv/' → Using Sonarr
+[RenameTrigger] Matched series folder: Invincible (id=23)
+[RenameTrigger] Triggering RescanSeries...
+[RenameTrigger] RescanSeries finished with status: completed
 [RenameTrigger] ✓ No rename needed.
 ```
 
-### Successful Sonarr Rename
+## Troubleshooting
 
-```
-[RenameTrigger] Path: /data/media/tv/Invincible (2021) {imdb-tt6741278}/Season 01/Invincible (2021) - S01E05.mkv
-[RenameTrigger] Path contains '/tv/' → Using Sonarr
-[RenameTrigger] Detected IDs → imdb:tt6741278 tmdb:- tvdb:-
-[RenameTrigger] Processing with Sonarr at http://172.28.10.4:8989
-[RenameTrigger] Looking up series by episode file path...
-[RenameTrigger] Matched series folder: Invincible (id=23)
-[RenameTrigger] Using series: Invincible (id=23)
-[RenameTrigger] Triggering RescanSeries...
-[RenameTrigger] RescanSeries finished with status: completed
-[RenameTrigger] RenameSeries fired (201)
-```
+<details>
+<summary><b>The plugin doesn't trigger at all</b></summary>
+<br>
+
+Check the path filter first — the log prints the path it saw and both filters. The service also has to be enabled, and the node has to sit somewhere the flow actually reaches (after *Replace Original File*, not on a branch that exits early).
+
+</details>
+
+<details>
+<summary><b>"movie not found in Radarr" / "series not found in Sonarr"</b></summary>
+<br>
+
+The path Tdarr sees must be the path the *arr has. Container mounts are the usual culprit: Tdarr's `/data/media/...` has to be the same file as Radarr's. Failing that, the plugin needs an `{imdb-tt…}`, `{tmdb-…}` or `{tvdb-…}` token in the path to fall back on.
+
+</details>
+
+<details>
+<summary><b>API errors, or nothing happens at all</b></summary>
+<br>
+
+Check that the host URL is reachable *from the Tdarr container* (not from your desktop), that the key is valid, and that you're on the v3 API — Radarr v3+ and Sonarr v3+.
+
+</details>
+
+<details>
+<summary><b>The file still isn't renamed</b></summary>
+<br>
+
+Read the last line of the plugin log:
+
+| Line | Meaning |
+| --- | --- |
+| `✓ No rename needed.` | Radarr/Sonarr genuinely sees nothing to rename — compare your naming scheme against the actual filename |
+| `Rescan still busy — rename deferred to a later run.` | The rescan outlived `rescan_wait_seconds`; the rename is caught up on the next run, or raise the wait |
+| `Not waiting for the rescan (rescan_wait_seconds = 0) — rename deferred to a later run.` | The wait is switched off, so every rename lands one run late. Set it back to `15` |
+
+`refresh_first` must be on — without the rescan, the *arr compares the new filename against stale metadata and skips. To see what it thinks is pending: `GET /api/v3/rename?movieId=…`.
+
+</details>
 
 ## Requirements
 
-- **Tdarr**: v2.x or later
-- **Radarr**: v3 API (Radarr v3.0.0+)
-- **Sonarr**: v3 API (Sonarr v3.0.0+)
-- **Node.js**: v14+ (bundled with Tdarr)
+- **Tdarr** 2.x (classic plugin, Stage: Post-processing)
+- **Radarr** v3.0.0+ / **Sonarr** v3.0.0+ (v3 API)
+- **Node.js** 14+ — bundled with Tdarr, nothing to install
 
 ## Development
 
-The repository contains a test suite for the plugin. Run it from the repository root:
-
 ```bash
+git clone https://github.com/Rovey/tdarr-arr-rename-trigger-plugin
+cd tdarr-arr-rename-trigger-plugin
 npm test
 ```
 
-This uses Node's built-in test runner (`node --test`), so it needs Node 18+ but no `npm install`
-and no network access: `sync-request`, Tdarr's `../methods/lib` and the credentials-file lookup are
-mocked for the duration of each test. The tests live in `tests/`.
+The suite uses Node's built-in test runner (Node 18+) and needs no `npm install` and no network: `sync-request`, Tdarr's `../methods/lib` and the credentials-file lookup are mocked, including Tdarr's own input casting. Tests live in `tests/`.
 
-## Troubleshooting
+## FAQ
 
-### Plugin Not Triggering
+<details>
+<summary><b>Does it work in Tdarr Flows, or only classic libraries?</b></summary>
+<br>
 
-- Check that path contains the configured string (case-insensitive)
-- Verify service is enabled in plugin settings
-- Check Tdarr logs for path detection messages
+Both. In a Flow, add it through the **Classic Plugin** node (`runClassicTranscodePlugin`).
 
-### Movie/Series Not Found
+</details>
 
-- Ensure file path exactly matches the path in Radarr/Sonarr
-- Verify IMDB/TMDB/TVDB ID is correctly formatted in path
-- Check that movie/series exists in Radarr/Sonarr
-- Review plugin logs for detailed error messages
+<details>
+<summary><b>Will it rename my entire library?</b></summary>
+<br>
 
-### API Errors
+No. It only ever touches the movie or series belonging to the file Tdarr just processed, and only when that *arr reports a pending rename.
 
-- Verify host URL is accessible from Tdarr container/server
-- Check API key is correct and has proper permissions
-- Ensure Radarr/Sonarr v3 API is being used (not v1/v2)
-- Check Radarr/Sonarr logs for API request errors
+</details>
 
-### Files Not Actually Renamed
+<details>
+<summary><b>Why a rescan instead of a refresh?</b></summary>
+<br>
 
-- Enable `refresh_first` option (the plugin needs it to update mediainfo before checking for a rename)
-- Confirm the plugin log contains `RescanMovie finished with status: completed` (or `RescanSeries ...`). If you see `Rescan still busy — rename deferred to a later run.` instead, the rescan outlived `rescan_wait_seconds` — the rename is caught up automatically on the next plugin run for that movie/series, or you can raise `rescan_wait_seconds`
-- If you see `Not waiting for the rescan (rescan_wait_seconds = 0) — rename deferred to a later run.`, the wait is switched off, so every rename is handled by the *next* run for that movie/series. Set `rescan_wait_seconds` back to `15` (or higher) to have the rename fired in the same run
-- If the log shows `✓ No rename needed.`, Radarr/Sonarr genuinely doesn't see anything to rename — check your naming scheme in Radarr/Sonarr settings against the actual filename
-- Manually call `GET /api/v3/rename?movieId=...` (or `?seriesId=...`) to confirm what Radarr/Sonarr think is pending
-- Rescans that never finish usually mean a jammed command queue — check System → Tasks in Radarr/Sonarr
+`RescanMovie`/`RescanSeries` re-reads the file from disk, which is all the rename needs. `RefreshMovie`/`RefreshSeries` also hits the metadata provider — slower, and pointless here.
+
+</details>
+
+<details>
+<summary><b>Why does it block the worker while polling?</b></summary>
+<br>
+
+Tdarr's classic plugin API is synchronous, so the plugin must return its result before the worker moves on. That's exactly why the wait is capped by `rescan_wait_seconds` and renames are fire-and-forget.
+
+</details>
 
 ## Contributing
 
-Contributions are welcome! Please feel free to submit pull requests or open issues.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Author
-
-**Rovey**
-
-## Acknowledgments
-
-- Built for use with [Tdarr](https://tdarr.io/)
-- Integrates with [Radarr](https://radarr.video/) and [Sonarr](https://sonarr.tv/)
-- Uses [sync-request](https://www.npmjs.com/package/sync-request) for synchronous HTTP calls
+Issues and pull requests are welcome — see [CONTRIBUTING.md](CONTRIBUTING.md). Run `npm test` before opening one.
 
 ## Version History
 
 The full release history is kept in [CHANGELOG.md](CHANGELOG.md).
+
+## Acknowledgments
+
+Built for [Tdarr](https://tdarr.io/), talks to [Radarr](https://radarr.video/) and [Sonarr](https://sonarr.tv/), and uses [sync-request](https://www.npmjs.com/package/sync-request) for synchronous HTTP.
+
+## License
+
+[MIT](LICENSE) © Rovey
