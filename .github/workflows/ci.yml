@@ -1,0 +1,36 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Test (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 18 is the floor for node --test; 22 is what Tdarr ships today.
+        node: ['18', '20', '22']
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+
+      # No install step on purpose: the plugin has one runtime dependency that
+      # Tdarr installs itself, and the tests mock it, so there is nothing to
+      # fetch and no lock file to keep in sync.
+      - name: Syntax check the plugin
+        run: node --check Tdarr_Plugin_rovey_arr_rename_trigger.js
+
+      - name: Test
+        run: npm test

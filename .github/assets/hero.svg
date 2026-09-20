@@ -1,0 +1,71 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 500" width="1200" height="500" role="img" aria-label="Tdarr Radarr/Sonarr Rename Trigger: after a transcode the filename is corrected from TrueHD Atmos 7.1 and VC1 to AC3 5.1 and h265, with the plugin log showing a rescan followed by RenameMovie">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0d1117"/>
+      <stop offset="100%" stop-color="#131a26"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#6C5CE7"/>
+      <stop offset="55%" stop-color="#FFC230"/>
+      <stop offset="100%" stop-color="#1E8E3E"/>
+    </linearGradient>
+    <style>
+      .sans { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+      .mono { font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, "Liberation Mono", monospace; }
+      .title { font-size: 34px; font-weight: 700; fill: #e6edf3; }
+      .sub { font-size: 17px; fill: #8b949e; }
+      .label { font-size: 12px; font-weight: 700; letter-spacing: 1.4px; fill: #6e7681; }
+      .file { font-size: 15px; fill: #c9d1d9; }
+      .bad { fill: #f85149; }
+      .good { fill: #3fb950; }
+      .log { font-size: 13.5px; fill: #adbac7; }
+      .tag { font-size: 13px; fill: #8b949e; }
+      .key { fill: #e6edf3; }
+    </style>
+  </defs>
+
+  <rect width="1200" height="500" rx="18" fill="url(#bg)"/>
+  <rect x="0.5" y="0.5" width="1199" height="499" rx="18" fill="none" stroke="#30363d"/>
+  <rect x="0" y="0" width="1200" height="5" rx="2.5" fill="url(#accent)"/>
+
+  <text class="sans title" x="56" y="84">Tdarr Radarr/Sonarr Rename Trigger</text>
+  <text class="sans sub" x="56" y="116">Transcoded a file? Radarr and Sonarr rename it, automatically.</text>
+
+  <g transform="translate(56 168)">
+    <text class="sans label" x="0" y="0">AFTER TDARR TRANSCODES</text>
+    <text class="mono file" x="0" y="32">
+      <tspan>Movie (2024) </tspan><tspan class="bad">[TrueHD Atmos 7.1][VC1]</tspan><tspan>.mkv</tspan>
+    </text>
+    <text class="sans tag" x="0" y="56">the file changed — the name did not</text>
+
+    <path d="M8 76 L8 108 M2 101 L8 108 L14 101" stroke="#1E8E3E" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+
+    <text class="sans label" x="0" y="140">AFTER THIS PLUGIN</text>
+    <text class="mono file" x="0" y="172">
+      <tspan>Movie (2024) </tspan><tspan class="good">[AC3 5.1][h265]</tspan><tspan>.mkv</tspan>
+    </text>
+    <text class="sans tag" x="0" y="196">rescan first, then rename — no stale metadata</text>
+  </g>
+
+  <g transform="translate(600 150)">
+    <rect x="0" y="0" width="544" height="278" rx="12" fill="#010409" stroke="#30363d"/>
+    <circle cx="22" cy="22" r="5" fill="#f85149"/>
+    <circle cx="40" cy="22" r="5" fill="#d29922"/>
+    <circle cx="58" cy="22" r="5" fill="#3fb950"/>
+    <text class="sans tag" x="80" y="26">Tdarr worker log</text>
+    <line x1="0" y1="44" x2="544" y2="44" stroke="#21262d"/>
+
+    <text class="mono log" x="20" y="74"><tspan class="key">[RenameTrigger]</tspan> Path contains '/movies/'</text>
+    <text class="mono log" x="20" y="98"><tspan class="key">[RenameTrigger]</tspan> Detected IDs → imdb:tt0812265</text>
+    <text class="mono log" x="20" y="122"><tspan class="key">[RenameTrigger]</tspan> Found movie by file path (id=42)</text>
+    <text class="mono log" x="20" y="146"><tspan class="key">[RenameTrigger]</tspan> Triggering RescanMovie...</text>
+    <text class="mono log" x="20" y="170"><tspan class="key">[RenameTrigger]</tspan> RescanMovie finished: completed</text>
+    <text class="mono log" x="20" y="194"><tspan class="key">[RenameTrigger]</tspan> <tspan class="good">RenameMovie fired (201)</tspan></text>
+    <line x1="20" y1="218" x2="524" y2="218" stroke="#21262d"/>
+    <text class="mono log" x="20" y="248"><tspan class="good">✓</tspan> <tspan class="tag">~1.6 s end to end · worker never blocked</tspan></text>
+  </g>
+
+  <g transform="translate(56 462)">
+    <text class="sans tag" x="0" y="0">Classic plugin · Post-processing · Radarr &amp; Sonarr v3 API · zero config beyond host + key</text>
+  </g>
+</svg>

@@ -2,6 +2,9 @@
 
 # Tdarr Radarr/Sonarr Rename Trigger
 
+<img src=".github/assets/hero.svg" alt="Tdarr Radarr/Sonarr Rename Trigger: after a transcode the filename still reads TrueHD Atmos 7.1 and VC1; the plugin rescans and renames it to AC3 5.1 and h265" width="100%">
+
+[![CI](https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/actions/workflows/ci.yml/badge.svg)](https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/actions/workflows/ci.yml)
 [![Latest release](https://img.shields.io/github/v/release/Rovey/tdarr-arr-rename-trigger-plugin?color=1E8E3E)](https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/latest)
 [![License: MIT](https://img.shields.io/github/license/Rovey/tdarr-arr-rename-trigger-plugin?color=blue)](LICENSE)
 ![Tdarr 2.x](https://img.shields.io/badge/Tdarr-2.x-6C5CE7)
@@ -233,6 +236,8 @@ git clone https://github.com/Rovey/tdarr-arr-rename-trigger-plugin
 cd tdarr-arr-rename-trigger-plugin
 npm test
 ```
+
+CI runs the same suite on Node 18, 20 and 22 for every push and pull request.
 
 The suite uses Node's built-in test runner (Node 18+) and needs no `npm install` and no network: `sync-request`, Tdarr's `../methods/lib` and the credentials-file lookup are mocked, including Tdarr's own input casting. Tests live in `tests/`.
 
