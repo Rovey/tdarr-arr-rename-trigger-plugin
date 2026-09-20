@@ -112,13 +112,18 @@ const details = () => ({
             tooltip: 'Trigger a refresh before renaming to ensure the new file is detected',
         },
         {
+            // Declared as a string on purpose: Tdarr casts a 'number' input with
+            // Number() and turns anything unparseable into 0, which this plugin
+            // would then read as "never wait". As a string the typed value
+            // reaches parseRescanWaitSeconds intact and can fall back to the
+            // declared default instead.
             name: 'rescan_wait_seconds',
-            type: 'number',
-            defaultValue: RESCAN_WAIT_DEFAULT_SECONDS,
+            type: 'string',
+            defaultValue: String(RESCAN_WAIT_DEFAULT_SECONDS),
             inputUI: {
                 type: 'text',
             },
-            tooltip: 'Max seconds to wait for the rescan before deferring the rename to the next run (0 = never wait). Keeps the Tdarr worker from blocking on big-series rescans.',
+            tooltip: 'Max seconds to wait for the rescan before deferring the rename to the next run (0 = never wait; anything that is not a whole number of seconds falls back to 15). Keeps the Tdarr worker from blocking on big-series rescans.',
         },
     ],
 });

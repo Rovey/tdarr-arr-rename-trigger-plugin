@@ -67,8 +67,9 @@ const EXPECTED_INPUTS = [
   },
   {
     name: 'rescan_wait_seconds',
-    type: 'number',
-    defaultValue: 15,
+    // A string, so Tdarr's Number() cast cannot turn a mistyped value into 0.
+    type: 'string',
+    defaultValue: '15',
     inputUI: { type: 'text' },
   },
 ];
