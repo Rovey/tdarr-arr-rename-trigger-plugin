@@ -243,6 +243,11 @@ const ID_MATCHERS = {
     tvdb: (value) => (item) => item.tvdbId === parseInt(value, 10),
 };
 
+// Split per service so a non-array payload names the same variable in the
+// TypeError as before.
+const findMovieById = (allMovies, idName, value) => allMovies.find(ID_MATCHERS[idName](value));
+const findSeriesById = (allSeries, idName, value) => allSeries.find(ID_MATCHERS[idName](value));
+
 // Radarr and Sonarr run the same "probe pending renames -> optional rescan ->
 // wait -> probe again -> fire rename" flow; only the endpoints, command names,
 // ID fallback order and log wording differ.
@@ -257,6 +262,7 @@ const RADARR = {
     lookupLine: '[RenameTrigger] Looking up movie by file path...\n',
     pathMatchLabel: 'Found movie by file path',
     findByPath: findMovieByPath,
+    findById: findMovieById,
     idOrder: ['imdb', 'tmdb'],
     idNames: 'imdb/tmdb',
 };
@@ -272,6 +278,7 @@ const SONARR = {
     lookupLine: '[RenameTrigger] Looking up series by episode file path...\n',
     pathMatchLabel: 'Matched series folder',
     findByPath: findSeriesByPath,
+    findById: findSeriesById,
     idOrder: ['tvdb', 'imdb', 'tmdb'],
     idNames: 'tvdb/tmdb/imdb',
 };
@@ -350,7 +357,7 @@ const findEntity = (context, target, items) => {
     context.log(`[RenameTrigger] File not found by path, trying ID match against ${target.entity} list...\n`);
     for (const idName of target.idOrder) {
         const value = context.ids[idName];
-        const match = value ? items.find(ID_MATCHERS[idName](value)) : undefined;
+        const match = value ? target.findById(items, idName, value) : undefined;
         if (match) {
             context.log(`[RenameTrigger] Found ${target.entity} by ID: ${match.title} (id=${match.id})\n`);
             return match;
