@@ -212,6 +212,18 @@ The plugin automatically extracts IDs from file paths:
 - **Sonarr**: v3 API (Sonarr v3.0.0+)
 - **Node.js**: v14+ (bundled with Tdarr)
 
+## Development
+
+The repository contains a test suite for the plugin. Run it from the repository root:
+
+```bash
+npm test
+```
+
+This uses Node's built-in test runner (`node --test`), so it needs Node 18+ but no `npm install`
+and no network access: `sync-request`, Tdarr's `../methods/lib` and the credentials-file lookup are
+mocked for the duration of each test. The tests live in `tests/`.
+
 ## Troubleshooting
 
 ### Plugin Not Triggering
