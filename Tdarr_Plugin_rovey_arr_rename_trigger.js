@@ -211,17 +211,30 @@ const waitForCommand = (request, log, host, apiKey, commandId, label, timeoutMs)
     return false;
 };
 
-// Radarr stores the exact file path of the movie file.
-const findMovieByPath = (movies, path) => movies.find((movie) => movie.movieFile && movie.movieFile.path === path) || null;
+// Radarr stores the exact file path of the movie file. Kept as a for..of loop
+// so a non-array payload fails with the same TypeError text as before.
+const findMovieByPath = (allMovies, path) => {
+    for (const movie of allMovies) {
+        if (movie.movieFile && movie.movieFile.path === path) {
+            return movie;
+        }
+    }
+    return null;
+};
 
 // The episode always lives under the series' root folder, so a prefix match on
 // series.path finds the show without the per-series episodefile calls (up to
 // ~90 sequential requests) this used to do.
-const findSeriesByPath = (allSeries, path) => allSeries.find((series) => {
-    if (!series.path) return false;
-    const folder = series.path.endsWith('/') ? series.path : `${series.path}/`;
-    return path.startsWith(folder);
-}) || null;
+const findSeriesByPath = (allSeries, path) => {
+    for (const series of allSeries) {
+        if (!series.path) continue;
+        const folder = series.path.endsWith('/') ? series.path : `${series.path}/`;
+        if (path.startsWith(folder)) {
+            return series;
+        }
+    }
+    return null;
+};
 
 // The captured tmdb/tvdb digits are strings; the *arr fields are numbers.
 const ID_MATCHERS = {
