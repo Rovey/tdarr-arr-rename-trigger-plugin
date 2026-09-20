@@ -15,7 +15,7 @@ const details = () => ({
     Triggers Radarr or Sonarr to Refresh and Rename the file after transcoding.
     Automatically detects whether to use Radarr or Sonarr based on file metadata.
     `,
-    Version: '1.5.0',
+    Version: '1.5.1',
     Tags: 'post-processing,3rd party,radarr,sonarr',
     Inputs: [
         {

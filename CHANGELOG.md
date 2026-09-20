@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+Versions 1.1.0, 1.3.0 and 1.4.0 were never released under a tag of their own — their changes first shipped in [v1.5.0], so those headings carry no release link.
+
+## [1.5.1] - 2026-09-20
+
+### Fixed
+- `rescan_wait_seconds` was read as `parseInt(value, 10) || 0`, so any value that did not parse as a number became `0` — "never wait" — instead of the declared default of 15 seconds. The plugin then skipped the rescan poll and deferred every rename to a later run. The input now falls back to 15 for anything that is not a non-negative number; an explicit `0` still means "never wait".
+- A wait of `0` logged `Rescan still busy — rename deferred to a later run.`, which claimed a rescan had been polled and found busy when no poll had happened at all. That case now logs `Not waiting for the rescan (rescan_wait_seconds = 0) — rename deferred to a later run.`; the old line is still used when a rescan genuinely outlives the wait.
+
+### Added
+- Test suite (`npm test`, Node's built-in runner, no dependencies and no network): 21 tests covering `details()`, both service paths, ID fallbacks, API-key resolution and the `rescan_wait_seconds` handling.
+
+### Changed
+- Internal: the near-identical Radarr and Sonarr branches share one parameterised flow again (the 1.2.1 refactor, redone on top of the current code). Log output, API calls and `details()` are unchanged — verified by a 57-scenario differential against 1.5.0 and by a live Tdarr run.
+
 ## [1.5.0] - 2026-07-28
 
 ### Added
@@ -87,9 +101,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Uses movieIds/seriesIds arrays for command parameters (verified against Radarr source code)
 - ID extraction from file paths: IMDB (tt\d+), TMDB (tmdbid-\d+), TVDB (tvdbid-\d+)
 
+[1.5.1]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.5.1
 [1.5.0]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.5.0
-[1.4.0]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.5.0
-[1.3.0]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.5.0
 [1.2.1]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.2.1
 [1.2.0]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.2.0
 [1.0.0]: https://github.com/Rovey/tdarr-arr-rename-trigger-plugin/releases/tag/v1.0.0
