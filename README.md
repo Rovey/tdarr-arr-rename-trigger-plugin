@@ -50,7 +50,7 @@ A Tdarr post-processing plugin that automatically triggers Radarr or Sonarr to r
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
 | `refresh_first` | Boolean | `true` | Trigger a disk rescan before renaming to ensure the new file is detected |
-| `rescan_wait_seconds` | Number | `15` | Max seconds to wait for the rescan before deferring the rename to the next run (`0` = never wait) |
+| `rescan_wait_seconds` | Number | `15` | Max seconds to wait for the rescan before deferring the rename to the next run (`0` = never wait; anything that is not a non-negative number falls back to `15`) |
 
 ### API Keys Without Leaking Them Into Logs
 
@@ -250,6 +250,7 @@ mocked for the duration of each test. The tests live in `tests/`.
 
 - Enable `refresh_first` option (the plugin needs it to update mediainfo before checking for a rename)
 - Confirm the plugin log contains `RescanMovie finished with status: completed` (or `RescanSeries ...`). If you see `Rescan still busy — rename deferred to a later run.` instead, the rescan outlived `rescan_wait_seconds` — the rename is caught up automatically on the next plugin run for that movie/series, or you can raise `rescan_wait_seconds`
+- If you see `Not waiting for the rescan (rescan_wait_seconds = 0) — rename deferred to a later run.`, the wait is switched off, so every rename is handled by the *next* run for that movie/series. Set `rescan_wait_seconds` back to `15` (or higher) to have the rename fired in the same run
 - If the log shows `✓ No rename needed.`, Radarr/Sonarr genuinely doesn't see anything to rename — check your naming scheme in Radarr/Sonarr settings against the actual filename
 - Manually call `GET /api/v3/rename?movieId=...` (or `?seriesId=...`) to confirm what Radarr/Sonarr think is pending
 - Rescans that never finish usually mean a jammed command queue — check System → Tasks in Radarr/Sonarr

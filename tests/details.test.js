@@ -87,7 +87,7 @@ test('details() reports the identity Tdarr keys plugins on', () => {
   assert.equal(details.Name, 'Trigger Radarr/Sonarr Rename');
   assert.equal(details.Type, 'Video');
   assert.equal(details.Operation, 'Transcode');
-  assert.equal(details.Version, '1.5.0');
+  assert.equal(details.Version, '1.5.1');
   assert.equal(details.Tags, 'post-processing,3rd party,radarr,sonarr');
 });
 
